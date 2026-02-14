@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arbeitseinsatz TCF 2026</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState, useEffect} = React;
+
+// REPLACE WITH YOUR ACTUAL GOOGLE APPS SCRIPT URL
+const API = "https://script.google.com/macros/s/AKfycbxjTq7QxF-pvHh3pJR6RAooVRRA8yiLgzf1BeXKxH7dzRtDlyvcXN-S8dk45SfkrUoV/exec";
+
+function App() {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState('book');
+  const [selectedWeek, setSelectedWeek] = useState('');
+  const [selectedSlot, setSelectedSlot] = useState(null);
+  const [bookingType, setBookingType] = useState('participant');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [msg, setMsg] = useState({type: '', text: ''});
+  const [manageName, setManageName] = useState('');
+  const [myBookings, setMyBookings] = useState([]);
+  const [lang, setLang] = useState('de');
+
+  const t = lang === 'de' ? {
+    title: 'Arbeitseinsatz TCF 2026',
+    subtitle: 'Buchen Sie Ihren Arbeitseinsatz',
+    book: 'Buchen',
+    manage: 'Meine Buchungen',
+    selectWeek: 'Wählen Sie eine Woche',
+    available: 'Verfügbar',
+    fullyBooked: 'Ausgebucht',
+    teamAvail: 'Teamleiter frei',
+    slots: 'Slots',
+    day: 'Tag',
+    event: 'Aufgabe',
+    time: 'Zeit',
+    details: 'Details',
+    status: 'Status',
+    booked: 'Gebucht',
+    name: 'Name, Vorname',
+    emailPH: 'ihre@email.de',
+    phonePH: '+49',
+    confirm: 'Bestätigen',
+    cancel: 'Abbrechen',
+    teamleiter: 'Teamleiter',
+    participant: 'Helfer',
+    role: 'Rolle',
+    confirmed: 'Bestätigt',
+    cancelled: 'Storniert',
+    fillAll: 'Bitte alle Felder ausfüllen',
+    teamTaken: 'Teamleiter vergeben',
+    loading: 'Laden...',
+    error: 'Fehler',
+    yourBookings: 'Ihre Buchungen',
+    noBookings: 'Keine Buchungen',
+    enterName: 'Name eingeben',
+    days: {
+      Mo: 'Montag',
+      Di: 'Dienstag',
+      Mi: 'Mittwoch',
+      Do: 'Donnerstag',
+      Fr: 'Freitag',
+      Sa: 'Samstag',
+      So: 'Sonntag'
+    }
+  } : {
+    title: 'Work Assignment TCF 2026',
+    subtitle: 'Book your work assignment slot',
+    book: 'Book',
+    manage: 'My Bookings',
+    selectWeek: 'Select a week',
+    available: 'Available',
+    fullyBooked: 'Full',
+    teamAvail: 'Leader free',
+    slots: 'Slots',
+    day: 'Day',
+    event: 'Task',
+    time: 'Time',
+    details: 'Details',
+    status: 'Status',
+    booked: 'Booked',
+    name: 'Name',
+    emailPH: 'your@email.com',
+    phonePH: '+1',
+    confirm: 'Confirm',
+    cancel: 'Cancel',
+    teamleiter: 'Team Leader',
+    participant: 'Helper',
+    role: 'Role',
+    confirmed: 'Confirmed',
+    cancelled: 'Cancelled',
+    fillAll: 'Fill all fields',
+    teamTaken: 'Leader taken',
+    loading: 'Loading...',
+    error: 'Error',
+    yourBookings: 'Your Bookings',
+    noBookings: 'No bookings',
+    enterName: 'Enter name',
+    days: {
+      Mo: 'Monday',
+      Di: 'Tuesday',
+      Mi: 'Wednesday',
+      Do: 'Thursday',
+      Fr: 'Friday',
+      Sa: 'Saturday',
+      So: 'Sunday'
+    }
+  };
+
+  useEffect(() => {
+    loadEvents();
+    const sl = localStorage.getItem('lang');
+    if (sl) setLang(sl);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('lang', lang);
+  }, [lang]);
+
+  useEffect(() => {
+    if (manageName.trim()) {
+      searchMyBookings();
+    } else {
+      setMyBookings([]);
+    }
+  }, [manageName]);
+
+  const loadEvents = async () => {
+    setLoading(true);
+    try {
+      const r1 = await fetch(`${API}?action=getEvents`);
+      const d1 = await r1.json();
+      const r2 = await fetch(`${API}?action=getTeamleiter`);
+      const d2 = await r2.json();
+      localStorage.setItem('teamData', JSON.stringify(d2));
+      setEvents(d1);
+    } catch (e) {
+      setMsg({type: 'error', text: t.error});
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getWeekDate = (kw) => {
+    const we = events.filter(e => e.kw === kw);
+    if (!we.length) return '';
+    // Return the first date found for this week
+    return we[0].date || '';
+  };
+
+  const getWeeks = () => {
+    const weeks = [...new Set(events.map(e => e.kw))].sort((a, b) => {
+      // kw format: "11-2026" or "11-2027"
+      const [aWeek, aYear] = a.split('-').map(Number);
+      const [bWeek, bYear] = b.split('-').map(Number);
+      
+      // Sort by year first, then by week
+      if (aYear !== bYear) return aYear - bYear;
+      return aWeek - bWeek;
+    });
+    
+    return weeks.map(kw => {
+      const we = getWeekEvents(kw);
+      const avail = we.filter(e => !e.name).length;
+      const teamTaken = isTeamTaken(kw);
+      
+      // Extract week number and year for display
+      const [weekNum, year] = kw.split('-');
+      const yearShort = year ? year.slice(-2) : ''; // "2026" -> "26"
+      
+      // Group events by task and count available slots per task
+      const taskBreakdown = {};
+      we.forEach(e => {
+        if (!taskBreakdown[e.event]) {
+          taskBreakdown[e.event] = { total: 0, available: 0 };
+        }
+        taskBreakdown[e.event].total++;
+        if (!e.name) {
+          taskBreakdown[e.event].available++;
+        }
+      });
+      
+      return {
+        kw,
+        kwDisplay: yearShort ? `KW ${weekNum}/${yearShort}` : `KW ${weekNum}`,
+        date: getWeekDate(kw),
+        day: we[0]?.day || '',
+        avail,
+        total: we.length,
+        teamTaken,
+        status: avail === 0 ? 'full' : 'avail',
+        tasks: taskBreakdown
+      };
+    });
+  };
+
+  const getWeekEvents = (kw) => events.filter(e => e.kw === kw && e.timeWindow);
+  
+  const getTeam = (kw) => JSON.parse(localStorage.getItem('teamData') || '[]').find(t => t.kw === kw);
+  
+  const isTeamTaken = (kw) => !!getTeam(kw);
+
+  const handleBook = async () => {
+    if (!name || !email || !phone) {
+      setMsg({type: 'error', text: t.fillAll});
+      return;
+    }
+
+    if (bookingType === 'teamleiter') {
+      if (isTeamTaken(selectedWeek)) {
+        setMsg({type: 'error', text: t.teamTaken});
+        return;
+      }
+      try {
+        await fetch(API, {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'bookTeamleiter',
+            kw: selectedWeek,
+            name,
+            email,
+            phone,
+            columnH: email,
+            columnI: phone
+          })
+        });
+        setMsg({type: 'success', text: `${t.confirmed}: ${t.teamleiter} KW ${selectedWeek}`});
+        setName('');
+        setEmail('');
+        setPhone('');
+        setBookingType('participant');
+        loadEvents();
+      } catch {
+        setMsg({type: 'error', text: t.error});
+      }
+      return;
+    }
+
+    if (!selectedSlot) return;
+
+    try {
+      await fetch(API, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'bookSlot',
+          rowIndex: selectedSlot.rowIndex,
+          name,
+          email,
+          phone,
+          columnH: email,
+          columnI: phone
+        })
+      });
+      setMsg({type: 'success', text: `${t.confirmed}: ${selectedSlot.event} - ${selectedSlot.day} ${selectedSlot.date}`});
+      setSelectedSlot(null);
+      setName('');
+      setEmail('');
+      setPhone('');
+      loadEvents();
+    } catch {
+      setMsg({type: 'error', text: t.error});
+    }
+  };
+
+  const getMyBookings = async () => {
+    if (!manageName.trim()) return [];
+    try {
+      const r = await fetch(`${API}?action=searchBookings&name=${encodeURIComponent(manageName.trim())}`);
+      const data = await r.json();
+      return data;
+    } catch (e) {
+      console.error('Search error:', e);
+      return [];
+    }
+  };
+
+  const searchMyBookings = async () => {
+    const bookings = await getMyBookings();
+    setMyBookings(bookings);
+  };
+
+  const handleCancel = async (booking) => {
+    try {
+      if (booking.role === 'teamleiter') {
+        await fetch(API, {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'cancelTeamleiter',
+            kw: booking.kw
+          })
+        });
+      } else {
+        await fetch(API, {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'cancelBooking',
+            rowIndex: booking.rowIndex
+          })
+        });
+      }
+      setMsg({type: 'success', text: t.cancelled});
+      loadEvents();
+      if (manageName.trim()) {
+        searchMyBookings();
+      }
+    } catch {
+      setMsg({type: 'error', text: t.error});
+    }
+  };
+
+  const we = selectedWeek ? getWeekEvents(selectedWeek) : [];
+  const team = selectedWeek ? getTeam(selectedWeek) : null;
+  const weekInfo = selectedWeek ? getWeeks().find(w => w.kw === selectedWeek) : null;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="max-w-6xl mx-auto">
+        <div className="bg-white rounded-lg shadow-xl p-8">
+          <div className="mb-6">
+            <div className="flex justify-between items-center mb-4">
+              <img 
+                src="https://www.tc-freiberg.de/assets/images/logo.svg" 
+                alt="TC Freiberg Logo" 
+                className="h-12 md:h-16 w-auto"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setLang('de')}
+                  className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg font-medium text-sm md:text-base ${
+                    lang === 'de' ? 'bg-indigo-600 text-white' : 'bg-gray-200'
+                  }`}
+                >
+                  DE
+                </button>
+                <button
+                  onClick={() => setLang('en')}
+                  className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg font-medium text-sm md:text-base ${
+                    lang === 'en' ? 'bg-indigo-600 text-white' : 'bg-gray-200'
+                  }`}
+                >
+                  EN
+                </button>
+              </div>
+            </div>
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-800">{t.title}</h1>
+              <p className="text-sm md:text-base text-gray-600">{t.subtitle}</p>
+            </div>
+          </div>
+
+          <div className="flex gap-2 mb-6">
+            <button
+              onClick={() => setView('book')}
+              className={`px-6 py-2 rounded-lg font-medium ${
+                view === 'book' ? 'bg-indigo-600 text-white' : 'bg-gray-200'
+              }`}
+            >
+              {t.book}
+            </button>
+            <button
+              onClick={() => setView('manage')}
+              className={`px-6 py-2 rounded-lg font-medium ${
+                view === 'manage' ? 'bg-indigo-600 text-white' : 'bg-gray-200'
+              }`}
+            >
+              {t.manage}
+            </button>
+          </div>
+
+          {msg.text && (
+            <div className={`mb-6 p-4 rounded-lg ${
+              msg.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+            }`}>
+              {msg.text}
+            </div>
+          )}
+
+          {view === 'book' && (
+            <div className="space-y-6">
+              {!selectedWeek ? (
+                <div>
+                  <h3 className="text-xl font-semibold mb-4">{t.selectWeek}</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    {getWeeks().map(w => (
+                      <button
+                        key={w.kw}
+                        onClick={() => setSelectedWeek(w.kw)}
+                        className={`p-4 rounded-lg border-2 transition hover:scale-105 relative text-left ${
+                          w.status === 'full'
+                            ? 'bg-red-50 border-red-300 opacity-60'
+                            : 'bg-green-50 border-green-400'
+                        }`}
+                      >
+                        <p className="text-2xl font-bold">{w.kwDisplay}</p>
+                        <p className="text-xs text-gray-600 mt-1">{t.days[w.day]}</p>
+                        <p className="text-xs text-gray-600">{w.date}</p>
+                        
+                        {/* Task breakdown */}
+                        <div className="mt-3 space-y-1">
+                          {Object.entries(w.tasks).map(([task, counts]) => (
+                            <div key={task} className="text-xs">
+                              <span className="font-medium">{task}:</span>{' '}
+                              <span className={counts.available > 0 ? 'text-green-700' : 'text-red-700'}>
+                                {counts.available > 0 ? `${counts.available} ✓` : '🔴'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        
+                        <div className={`absolute top-2 right-2 text-white text-xs px-2 py-1 rounded-full ${
+                          w.teamTaken ? 'bg-red-500' : 'bg-green-500'
+                        }`}>
+                          👤
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-6 text-sm flex gap-4 justify-center">
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 bg-green-50 border-2 border-green-400 rounded"></div>
+                      <span>{t.available}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 bg-red-50 border-2 border-red-300 rounded"></div>
+                      <span>{t.fullyBooked}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">👤</div>
+                      <span>{lang === 'de' ? 'Teamleiter verfügbar' : 'Leader available'}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">👤</div>
+                      <span>{lang === 'de' ? 'Teamleiter gebucht' : 'Leader booked'}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      setSelectedWeek('');
+                      setSelectedSlot(null);
+                    }}
+                    className="text-indigo-600 font-medium"
+                  >
+                    ← Zurück
+                  </button>
+
+                  <div className="bg-indigo-50 p-4 rounded-lg">
+                    <p className="font-semibold text-lg">
+                      {weekInfo?.kwDisplay || `KW ${selectedWeek}`} - {weekInfo?.day && t.days[weekInfo.day]} {weekInfo?.date}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">{t.role}</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setBookingType('participant')}
+                        className={`p-3 rounded-lg font-medium ${
+                          bookingType === 'participant' 
+                            ? 'bg-indigo-600 text-white' 
+                            : 'bg-gray-100'
+                        }`}
+                      >
+                        {t.participant}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setBookingType('teamleiter');
+                          setSelectedSlot(null);
+                        }}
+                        disabled={isTeamTaken(selectedWeek)}
+                        className={`p-3 rounded-lg font-medium ${
+                          bookingType === 'teamleiter'
+                            ? 'bg-indigo-600 text-white'
+                            : isTeamTaken(selectedWeek)
+                            ? 'bg-gray-100 text-gray-400'
+                            : 'bg-gray-100'
+                        }`}
+                      >
+                        {t.teamleiter}
+                        {isTeamTaken(selectedWeek) && ' ✓'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {team && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <p className="text-sm font-medium text-blue-900">
+                        👤 {t.teamleiter}: {team.name}
+                      </p>
+                    </div>
+                  )}
+
+                  {bookingType === 'teamleiter' && !isTeamTaken(selectedWeek) ? (
+                    <div className="space-y-6">
+                      <input
+                        type="text"
+                        value={name}
+                        onChange={e => setName(e.target.value)}
+                        className="w-full p-3 border rounded-lg"
+                        placeholder={t.name}
+                      />
+                      <div className="grid md:grid-cols-2 gap-6">
+                        <input
+                          type="email"
+                          value={email}
+                          onChange={e => setEmail(e.target.value)}
+                          className="w-full p-3 border rounded-lg"
+                          placeholder={t.emailPH}
+                        />
+                        <input
+                          type="tel"
+                          value={phone}
+                          onChange={e => setPhone(e.target.value)}
+                          className="w-full p-3 border rounded-lg"
+                          placeholder={t.phonePH}
+                        />
+                      </div>
+                      <button
+                        onClick={handleBook}
+                        className="w-full bg-indigo-600 text-white py-3 rounded-lg font-medium hover:bg-indigo-700"
+                      >
+                        {t.confirm}
+                      </button>
+                    </div>
+                  ) : bookingType === 'participant' && (
+                    <>
+                      <div>
+                        <h3 className="text-xl font-semibold mb-4">{t.slots}</h3>
+                        <div className="grid gap-3">
+                          {we.map((s, i) => (
+                            <div
+                              key={i}
+                              onClick={() => !s.name && setSelectedSlot(s)}
+                              className={`p-4 border rounded-lg ${
+                                s.name
+                                  ? 'bg-gray-50'
+                                  : selectedSlot?.rowIndex === s.rowIndex
+                                  ? 'bg-indigo-50 border-indigo-500'
+                                  : 'bg-white hover:border-indigo-300 cursor-pointer'
+                              }`}
+                            >
+                              <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+                                <div>
+                                  <p className="text-xs text-gray-500">{t.event}</p>
+                                  <p className="font-medium text-sm">{s.event}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500">{t.slots}</p>
+                                  <p className="font-medium">{s.slot}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500">{t.time}</p>
+                                  <p className="font-medium">{s.timeWindow}</p>
+                                </div>
+                                <div className="md:col-span-2">
+                                  <p className="text-xs text-gray-500">{t.details}</p>
+                                  <p className="text-sm text-gray-700">{s.details}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500">{t.status}</p>
+                                  {s.name ? (
+                                    <div>
+                                      <p className="text-sm font-medium text-red-700">✓ {t.booked}</p>
+                                      <p className="text-xs text-gray-600">{s.name}</p>
+                                    </div>
+                                  ) : (
+                                    <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                                      {t.available}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {selectedSlot && (
+                        <div className="border-t pt-6 space-y-6">
+                          <div className="bg-indigo-50 p-4 rounded-lg">
+                            <p className="font-medium">
+                              {(() => {
+                                const [weekNum, year] = selectedSlot.kw.split('-');
+                                const yearShort = year ? year.slice(-2) : '';
+                                return yearShort ? `KW ${weekNum}/${yearShort}` : `KW ${weekNum}`;
+                              })()} - {t.days[selectedSlot.day]}, {selectedSlot.date}
+                            </p>
+                            <p className="text-sm">{selectedSlot.event} • {selectedSlot.slot}</p>
+                            <p className="text-sm">{selectedSlot.timeWindow}</p>
+                            <p className="text-xs text-gray-600 mt-1">{selectedSlot.details}</p>
+                          </div>
+                          <input
+                            type="text"
+                            value={name}
+                            onChange={e => setName(e.target.value)}
+                            className="w-full p-3 border rounded-lg"
+                            placeholder={t.name}
+                          />
+                          <div className="grid md:grid-cols-2 gap-6">
+                            <input
+                              type="email"
+                              value={email}
+                              onChange={e => setEmail(e.target.value)}
+                              className="w-full p-3 border rounded-lg"
+                              placeholder={t.emailPH}
+                            />
+                            <input
+                              type="tel"
+                              value={phone}
+                              onChange={e => setPhone(e.target.value)}
+                              className="w-full p-3 border rounded-lg"
+                              placeholder={t.phonePH}
+                            />
+                          </div>
+                          <div className="flex gap-3">
+                            <button
+                              onClick={handleBook}
+                              className="flex-1 bg-indigo-600 text-white py-3 rounded-lg font-medium hover:bg-indigo-700"
+                            >
+                              {t.confirm}
+                            </button>
+                            <button
+                              onClick={() => setSelectedSlot(null)}
+                              className="px-6 bg-gray-200 py-3 rounded-lg font-medium"
+                            >
+                              {t.cancel}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {view === 'manage' && (
+            <div className="space-y-6">
+              <input
+                type="email"
+                value={manageName}
+                onChange={e => setManageName(e.target.value)}
+                placeholder={t.enterName}
+                className="w-full p-3 border rounded-lg"
+              />
+              {manageName && (
+                <div>
+                  <h3 className="text-xl font-semibold mb-4">{t.yourBookings}</h3>
+                  {myBookings.length === 0 ? (
+                    <p className="text-gray-500">{t.noBookings}</p>
+                  ) : (
+                    myBookings.map((b, i) => (
+                      <div
+                        key={i}
+                        className="p-4 border border-green-300 bg-green-50 rounded-lg mb-3"
+                      >
+                        <div>
+                          {b.role === 'teamleiter' ? (
+                            <div>
+                              <p className="font-semibold">
+                                {t.teamleiter} - KW {b.kw}
+                              </p>
+                              <p className="text-sm text-gray-700 mt-1">{b.name}</p>
+                            </div>
+                          ) : (
+                            <div>
+                              <p className="font-semibold">
+                                KW {b.kw} - {t.days[b.day]}, {b.date}
+                              </p>
+                              <p className="text-sm text-gray-700">{b.name}</p>
+                              <p>{b.event} • {b.slot}</p>
+                              <p className="text-sm">{b.timeWindow}</p>
+                              {b.details && <p className="text-xs text-gray-600">{b.details}</p>}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-6 bg-green-50 border border-green-200 rounded-lg p-4">
+          <h3 className="font-semibold text-green-900 mb-2">
+            ✅ Mit Google Sheets verbunden!
+          </h3>
+          <p className="text-sm text-green-800">
+            Buchungen werden direkt ins Google Sheet geschrieben.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.render(<App />, document.getElementById('root'));
+</script>
+</body>
+</html>
