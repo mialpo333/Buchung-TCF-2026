@@ -130,13 +130,38 @@ function buildWeeks(events, teamData){
   const kws=[...new Set(events.map(e=>e.kw))];
   return kws.map(kw=>{
     const all=events.filter(e=>e.kw===kw);
-    const menuRows=all.filter(e=>(e.menu||'').trim());
-    const byDay={};
-    menuRows.forEach(e=>{ if(!byDay[e.day]) byDay[e.day]={dish:(e.menu||'').trim(),cooks:[],tw:e.timeWindow||''};
-      if(e.name) byDay[e.day].cooks.push(e.name.trim()); });
-    const defaultTime=mode(menuRows.map(e=>normTW(e.timeWindow)).filter(Boolean))||'18–22 Uhr';
-    const days=DAY_ORDER.filter(k=>byDay[k]).map(k=>{ const d=byDay[k], tw=normTW(d.tw);
-      return {day:DAY_FULL[k]||k, dish:d.dish, cooks:d.cooks.join(' und '), time:(tw&&tw!==defaultTime)?tw:null}; });
+    // Consider every BOOKED row (has a name OR a dish). We must NOT drop rows
+    // whose menu cell is empty: a second co-cook often books the same slot but
+    // only the first person types the dish into column M. Group by day + time
+    // slot, take the dish from whichever row in the slot has one, and collect
+    // ALL names. So co-cooks merge ("X und Y") regardless of who filled M;
+    // genuinely different dishes/slots on a day still render as separate lines.
+    const booked=all.filter(e=>(e.name||'').trim() || (e.menu||'').trim());
+    const groups={};                       // key -> {day, dish, tw, cooks[], order}
+    booked.forEach((e,idx)=>{
+      const dish=(e.menu||'').trim();
+      const tw=normTW(e.timeWindow);
+      // primary key = day + time slot; dish disambiguates only if two truly
+      // different dishes share one slot.
+      let key=e.day+'|'+tw;
+      const existing=groups[key];
+      if(existing && existing.dish && dish && existing.dish.toLowerCase()!==dish.toLowerCase()){
+        key=key+'|'+dish.toLowerCase();      // distinct dish in same slot -> own line
+      }
+      if(!groups[key]) groups[key]={day:e.day, dish, tw, cooks:[], order:idx};
+      if(dish && !groups[key].dish) groups[key].dish=dish;   // fill dish if missing
+      if((e.name||'').trim()) groups[key].cooks.push(e.name.trim());
+    });
+    // a slot with names but no dish at all isn't ready -> don't show it
+    const ready=Object.values(groups).filter(g=>g.dish);
+    const menuTWs=ready.map(g=>g.tw).filter(Boolean);
+    const defaultTime=mode(menuTWs)||'18–22 Uhr';
+    const di=d=>DAY_ORDER.indexOf(d);
+    const days=ready
+      .sort((a,b)=> di(a.day)-di(b.day) || a.tw.localeCompare(b.tw) || a.order-b.order)
+      .map(g=>({day:DAY_FULL[g.day]||g.day, dish:g.dish,
+                cooks:[...new Set(g.cooks)].join(' und '),
+                time:(g.tw && g.tw!==defaultTime)?g.tw:null}));
     const team=(teamData||[]).find(t=>t.kw===kw);
     return {kw, range:rangeOf(all), defaultTime, teamleiter:team?team.name:'', days, hasMenu:days.length>0};
   }).sort((x,y)=>(rangeStart(events,x.kw)||0)-(rangeStart(events,y.kw)||0));
@@ -156,12 +181,20 @@ const MOCK=[{kw:"21",range:"18. – 24. Mai",defaultTime:"18–22 Uhr",teamleite
 function esc(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function renderWeek(w){
   const card=document.getElementById('card');
-  const days=w.days.map(d=>`
+  let prevDay='';
+  const days=w.days.map(d=>{
+    const sameAsPrev = d.day===prevDay;   // 2nd+ line of the same weekday
+    prevDay=d.day;
+    const label = sameAsPrev
+      ? (d.time?`(${esc(d.time)})`:'')               // repeat: time only
+      : `${esc(d.day)}${d.time?` (${esc(d.time)})`:''}`;
+    return `
     <div class="day">
-      <div class="day-label">${esc(d.day)}${d.time?` (${esc(d.time)})`:''}</div>
+      ${label?`<div class="day-label">${label}</div>`:''}
       <div class="dish">${esc(d.dish)}</div>
       ${d.cooks?`<div class="cooks">von ${esc(d.cooks)}</div>`:''}
-    </div>`).join('');
+    </div>`;
+  }).join('');
   card.innerHTML=`
     <img class="logo" src="${CONFIG.logo}" alt="TCF">
     <div class="title">BEWIRTUNG</div>
